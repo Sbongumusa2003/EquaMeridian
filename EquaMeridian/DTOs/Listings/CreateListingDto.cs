@@ -1,23 +1,31 @@
-﻿namespace EquaMeridian.DTOs.Listings
+﻿using System.ComponentModel.DataAnnotations;
+
+namespace EquaMeridian.DTOs.Listings
 {
-    public class ListingDto
+    public class CreateListingDto
     {
-        public int ListingID { get; set; }
+        [Required]
+        [MaxLength(200)]
         public string ListingTitle { get; set; } = string.Empty;
+
+        [Required]
         public int CategoryID { get; set; }
-        public string AvailabilityStatus { get; set; } = string.Empty;
+
+        [Required]
+        [MaxLength(2000)]
         public string Description { get; set; } = string.Empty;
+
         public string? MakeBrand { get; set; }
         public string? Model { get; set; }
         public int? Year { get; set; }
         public string? OperatingWeight { get; set; }
         public string? EnginePower { get; set; }
         public string? Location { get; set; }
+
+        [Required]
+        [Range(0.01, double.MaxValue, ErrorMessage = "Daily rate must be greater than zero.")]
         public decimal DailyRateZAR { get; set; }
+
         public decimal? WeeklyRateZAR { get; set; }
-        public DateTime CreatedDate { get; set; }
-        public bool DuplicateFlag { get; set; }
-        public int SupplierID { get; set; }
-        public string SupplierName { get; set; } = string.Empty;
     }
 }
