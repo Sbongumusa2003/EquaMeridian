@@ -53,4 +53,27 @@ public class AuthController : ControllerBase
             return BadRequest(new { message = "Token is invalid, expired, or already used." });
         return Ok(new { message = "Password reset successfully." });
     }
+    [HttpPost("register")]
+    public async Task<IActionResult> Register([FromBody] RegisterRequest dto)
+    {
+        if (!ModelState.IsValid) return BadRequest(ModelState);
+        // Check if email already exists
+        var existing = await _db.Users.FirstOrDefaultAsync(u => u.Email == dto.Email);
+        if (existing != null)
+            return Conflict(new { message = "An account with this email already exists." });
+
+        var user = new User
+        {
+            FullName = dto.FullName,
+            Email = dto.Email,
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
+            Role = dto.Role,
+            CompanyName = dto.CompanyName,
+            AccountStatus = "Pending",
+            CreatedDate = DateTime.UtcNow
+        };
+        _db.Users.Add(user);
+        await _db.SaveChangesAsync();
+        return Ok(new { message = "Account created. Awaiting admin approval." });
+    }
 }
