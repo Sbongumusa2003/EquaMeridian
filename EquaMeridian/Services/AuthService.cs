@@ -1,5 +1,6 @@
 ﻿using EquaMeridian.DTOs.Auth;
 using EquaMeridian.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;

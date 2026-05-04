@@ -1,4 +1,5 @@
 ﻿using EquaMeridian.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore;
 
 public class UserRepository : IUserRepository
 {
