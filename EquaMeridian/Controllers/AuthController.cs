@@ -1,6 +1,8 @@
 ﻿using EquaMeridian.DTOs.Auth;
+using EquaMeridian.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 
 [ApiController]
@@ -8,7 +10,14 @@ using System.Security.Claims;
 public class AuthController : ControllerBase
 {
     private readonly IAuthService _auth;
-    public AuthController(IAuthService auth) => _auth = auth;
+    private readonly AppDbContext _db;
+
+    public AuthController(IAuthService auth, AppDbContext db)
+    {
+        _auth = auth;
+        _db = db;
+    }
+
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest dto)
     {
@@ -26,6 +35,7 @@ public class AuthController : ControllerBase
             return StatusCode(403, new { message = $"Account is {ex.Message}." });
         }
     }
+
     [Authorize]
     [HttpPost("logout")]
     public async Task<IActionResult> Logout()
@@ -35,6 +45,7 @@ public class AuthController : ControllerBase
         await _auth.LogoutAsync(userId, token);
         return Ok(new { message = "Logged out successfully." });
     }
+
     [HttpPost("forgot-password")]
     public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest dto)
     {
@@ -43,6 +54,7 @@ public class AuthController : ControllerBase
         await _auth.ForgotPasswordAsync(dto.Email, ip);
         return Ok(new { message = "If that email is registered, a reset link has been sent." });
     }
+
     [HttpPost("reset-password")]
     public async Task<IActionResult> ResetPassword([FromBody] UpdatePasswordRequest dto)
     {
@@ -53,11 +65,12 @@ public class AuthController : ControllerBase
             return BadRequest(new { message = "Token is invalid, expired, or already used." });
         return Ok(new { message = "Password reset successfully." });
     }
+
     [HttpPost("register")]
     public async Task<IActionResult> Register([FromBody] RegisterRequest dto)
     {
         if (!ModelState.IsValid) return BadRequest(ModelState);
-        // Check if email already exists
+
         var existing = await _db.Users.FirstOrDefaultAsync(u => u.Email == dto.Email);
         if (existing != null)
             return Conflict(new { message = "An account with this email already exists." });
