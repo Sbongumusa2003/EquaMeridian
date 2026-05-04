@@ -6,7 +6,5 @@
     public DateTime ExpiryTimestamp { get; set; }
     public bool IsUsed { get; set; } = false;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-
-    // Navigation property — required by AuthService.ResetPasswordAsync
     public User User { get; set; } = null!;
 }

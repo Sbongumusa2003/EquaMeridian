@@ -14,8 +14,7 @@ public class AppDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<User>()
-            .HasIndex(u => u.Email)
-            .IsUnique();
+            .HasIndex(u => u.Email).IsUnique();
 
         modelBuilder.Entity<Listing>()
             .HasOne(l => l.Supplier)
@@ -30,11 +29,9 @@ public class AppDbContext : DbContext
             .Property(l => l.WeeklyRateZAR)
             .HasColumnType("decimal(18,2)");
 
-        // Remove duplicate — only ONE HasKey call needed
         modelBuilder.Entity<AuditLog>()
             .HasKey(a => a.AuditID);
 
-        // Configure PasswordReset → User relationship
         modelBuilder.Entity<PasswordReset>()
             .HasOne(p => p.User)
             .WithMany()

@@ -1,4 +1,5 @@
-﻿using FluentAssertions;
+﻿using EquaMeridian.DTOs.User;
+using FluentAssertions;
 using Microsoft.AspNetCore.Mvc;
 using Moq;
 

@@ -1,4 +1,5 @@
-﻿using EquaMeridian.Infrastructure.Data;
+﻿using EquaMeridian.DTOs.User;
+using EquaMeridian.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
 public class UserRepository : IUserRepository
@@ -10,25 +11,17 @@ public class UserRepository : IUserRepository
         string? search, string? role, string? status, int page, int pageSize)
     {
         var query = _db.Users.AsQueryable();
-
         if (!string.IsNullOrWhiteSpace(search))
             query = query.Where(u =>
-                u.FullName.Contains(search) ||
-                u.Email.Contains(search) ||
+                u.FullName.Contains(search) || u.Email.Contains(search) ||
                 (u.CompanyName != null && u.CompanyName.Contains(search)));
-
         if (!string.IsNullOrWhiteSpace(role))
             query = query.Where(u => u.Role == role);
-
         if (!string.IsNullOrWhiteSpace(status))
             query = query.Where(u => u.AccountStatus == status);
-
         var total = await query.CountAsync();
-
-        var users = await query
-            .OrderByDescending(u => u.CreatedDate)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
+        var users = await query.OrderByDescending(u => u.CreatedDate)
+            .Skip((page - 1) * pageSize).Take(pageSize)
             .Select(u => new UserDto
             {
                 UserID = u.UserID,
@@ -40,7 +33,6 @@ public class UserRepository : IUserRepository
                 CreatedDate = u.CreatedDate,
                 LastLoginDate = u.LastLoginDate
             }).ToListAsync();
-
         return (users, total);
     }
 
@@ -49,8 +41,7 @@ public class UserRepository : IUserRepository
 
     public async Task UpdateStatusAsync(int userId, string newStatus)
     {
-        var user = await _db.Users.FindAsync(userId)
-                   ?? throw new KeyNotFoundException();
+        var user = await _db.Users.FindAsync(userId) ?? throw new KeyNotFoundException();
         user.AccountStatus = newStatus;
         await _db.SaveChangesAsync();
     }

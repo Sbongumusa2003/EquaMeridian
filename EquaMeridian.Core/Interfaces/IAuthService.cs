@@ -1,5 +1,4 @@
 ﻿using EquaMeridian.DTOs.Auth;
-using Microsoft.AspNetCore.Identity.Data;
 
 public interface IAuthService
 {

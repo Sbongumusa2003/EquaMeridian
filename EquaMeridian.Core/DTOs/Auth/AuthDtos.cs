@@ -11,7 +11,7 @@ namespace EquaMeridian.DTOs.Auth
         [Required]
         public string Password { get; set; } = string.Empty;
 
-        public bool KeepMeSignedIn { get; set; } = false;  // ← ADD THIS
+        public bool KeepMeSignedIn { get; set; } = false;
     }
 
     public class LoginResponse
