@@ -1,0 +1,6 @@
+@EquaMeridian_HostAddress = http://localhost:5143
+
+GET {{EquaMeridian_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
