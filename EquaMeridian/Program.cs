@@ -9,13 +9,16 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddDbContext<AppDbContext>(opt =>
     opt.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+
 builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IListingRepository, ListingRepository>();
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(opt => {
+    .AddJwtBearer(opt =>
+    {
         opt.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
@@ -28,29 +31,53 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
         };
     });
+
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
     {
-        policy.WithOrigins("http://localhost:4200")
-              .AllowAnyHeader()
-              .AllowAnyMethod();
+        if (builder.Environment.IsDevelopment())
+        {
+            // Angular CLI picks a random port (4200, 56848, …).
+            // Allow any localhost / 127.0.0.1 origin in dev so a port change
+            // never breaks the app.
+            policy.SetIsOriginAllowed(origin =>
+            {
+                var uri = new Uri(origin);
+                return uri.Host is "localhost" or "127.0.0.1";
+            })
+                .AllowAnyHeader()
+                .AllowAnyMethod();
+        }
+        else
+        {
+            policy.WithOrigins(
+                    builder.Configuration["AllowedOrigin"] ?? "https://yourdomain.com")
+                .AllowAnyHeader()
+                .AllowAnyMethod();
+        }
     });
 });
 
-builder.Services.AddAuthorization(opt => {
+builder.Services.AddAuthorization(opt =>
+{
     opt.AddPolicy("AdminOnly", p => p.RequireRole("admin"));
     opt.AddPolicy("SupplierOnly", p => p.RequireRole("Supplier"));
 });
 
-builder.Services.AddControllers();
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen(c => {
-    c.SwaggerDoc("v1", new OpenApiInfo
+builder.Services.AddControllers()
+    .AddJsonOptions(opt =>
     {
-        Title = "EquaMeridian API",
-        Version = "v1"
+        opt.JsonSerializerOptions.PropertyNamingPolicy =
+            System.Text.Json.JsonNamingPolicy.CamelCase;
+        opt.JsonSerializerOptions.DefaultIgnoreCondition =
+            System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
     });
+
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "EquaMeridian API", Version = "v1" });
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Name = "Authorization",
@@ -60,10 +87,12 @@ builder.Services.AddSwaggerGen(c => {
         In = ParameterLocation.Header,
         Description = "Enter your JWT token (without 'Bearer ' prefix)"
     });
-    c.AddSecurityRequirement(new OpenApiSecurityRequirement {{
-        new OpenApiSecurityScheme {
-            Reference = new OpenApiReference {
-                Type = ReferenceType.SecurityScheme, Id = "Bearer" }
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {{
+        new OpenApiSecurityScheme
+        {
+            Reference = new OpenApiReference
+                { Type = ReferenceType.SecurityScheme, Id = "Bearer" }
         },
         Array.Empty<string>()
     }});
@@ -71,7 +100,15 @@ builder.Services.AddSwaggerGen(c => {
 
 var app = builder.Build();
 
-app.Use(async (context, next) => {
+// ── Seed dev users automatically ──────────────────────────────────────────────
+// Creates admin / supplier / contractor accounts if they don't exist yet, and
+// resets them to Active if they were accidentally locked out.
+// No-op outside Development.
+await DbSeeder.SeedAsync(app.Services);
+
+// ── Global error handler ──────────────────────────────────────────────────────
+app.Use(async (context, next) =>
+{
     try { await next(); }
     catch (Exception ex)
     {
@@ -87,11 +124,22 @@ if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+
+    // *** Do NOT redirect HTTP → HTTPS in Development ***
+    // Angular calls http://localhost:5143/api.  A 307 redirect to HTTPS
+    // carries no CORS headers so the browser blocks it.
+    // Start the API with:  dotnet run --launch-profile http
+}
+else
+{
+    app.UseHttpsRedirection();
 }
 
-app.UseHttpsRedirection();
+// UseCors MUST come before UseAuthentication / UseAuthorization
 app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 app.Run();
+
+public partial class Program { }

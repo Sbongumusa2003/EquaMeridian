@@ -17,6 +17,7 @@ public class AuthService : IAuthService
     public AuthService(AppDbContext db, IConfiguration config,
                        IEmailService email, IAuditService audit)
     { _db = db; _config = config; _email = email; _audit = audit; }
+
     public async Task<LoginResponse?> LoginAsync(LoginRequest dto, string ip)
     {
         var user = await _db.Users.FirstOrDefaultAsync(u => u.Email == dto.Email);
@@ -34,7 +35,7 @@ public class AuthService : IAuthService
                 user.LockoutExpiry = DateTime.UtcNow.AddMinutes(30);
                 await _email.SendLockoutEmailAsync(user.Email, user.FullName);
                 await _audit.LogAsync(user.UserID, "LOGIN_LOCKOUT",
-                    $"Account locked after 5 failed attempts", null, null, null, ip);
+                    "Account locked after 5 failed attempts", null, null, null, ip);
             }
             await _db.SaveChangesAsync();
             return null;
@@ -54,21 +55,24 @@ public class AuthService : IAuthService
         return new LoginResponse
         {
             Token = token,
-            Role = user.Role,
+            Role = user.Role,   // returned as-is so Angular AuthService can lowercase it
             UserID = user.UserID,
             FullName = user.FullName,
             Expiry = expiry
         };
     }
+
     public async Task LogoutAsync(int userId, string token)
     {
         await _audit.LogAsync(userId, "LOGOUT", "User logged out", null, null, null, null);
     }
+
     public async Task ForgotPasswordAsync(string email, string ip)
     {
         var user = await _db.Users
             .FirstOrDefaultAsync(u => u.Email == email && u.AccountStatus == "Active");
         if (user == null) return;
+
         var hourAgo = DateTime.UtcNow.AddHours(-1);
         var recentCount = await _db.PasswordReset
             .CountAsync(p => p.UserID == user.UserID && p.CreatedAt >= hourAgo);
@@ -86,11 +90,12 @@ public class AuthService : IAuthService
         });
         await _db.SaveChangesAsync();
 
-        var resetUrl = $"https://yourapp.com/reset-password?token={rawToken}";
+        var resetUrl = $"http://localhost:4200/auth/reset-password?token={Uri.EscapeDataString(rawToken)}";
         await _email.SendPasswordResetEmailAsync(user.Email, user.FullName, resetUrl);
         await _audit.LogAsync(user.UserID, "PASSWORD_RESET_REQUEST",
             "Reset email dispatched", null, null, null, ip);
     }
+
     public async Task<bool> ResetPasswordAsync(UpdatePasswordRequest dto, string ip)
     {
         var tokenHash = HashToken(dto.Token);
@@ -113,8 +118,13 @@ public class AuthService : IAuthService
             "Password reset via token", null, null, null, ip);
         return true;
     }
+
     private string GenerateJwt(User user, DateTime expiry)
     {
+        // IMPORTANT: The role claim must match what the authorization policies expect.
+        // Policy "AdminOnly"    => RequireRole("admin")    => store Role as "admin"
+        // Policy "SupplierOnly" => RequireRole("Supplier") => store Role as "Supplier"
+        // We store user.Role verbatim; callers must seed roles with the correct casing.
         var claims = new[]
         {
             new Claim(ClaimTypes.NameIdentifier, user.UserID.ToString()),
@@ -122,8 +132,8 @@ public class AuthService : IAuthService
             new Claim(ClaimTypes.Role,           user.Role),
             new Claim(ClaimTypes.Name,           user.FullName)
         };
-        var key = new SymmetricSecurityKey(
-                        Encoding.UTF8.GetBytes(_config["Jwt:Key"]!));
+
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]!));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
         var token = new JwtSecurityToken(
             issuer: _config["Jwt:Issuer"],
@@ -131,10 +141,10 @@ public class AuthService : IAuthService
             claims: claims,
             expires: expiry,
             signingCredentials: creds);
+
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
     private static string HashToken(string raw)
-        => Convert.ToBase64String(
-               SHA256.HashData(Encoding.UTF8.GetBytes(raw)));
+        => Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(raw)));
 }

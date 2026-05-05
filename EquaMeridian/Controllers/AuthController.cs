@@ -75,18 +75,31 @@ public class AuthController : ControllerBase
         if (existing != null)
             return Conflict(new { message = "An account with this email already exists." });
 
+        // Normalise role casing to match the authorization policies:
+        //   "AdminOnly"    policy => RequireRole("admin")
+        //   "SupplierOnly" policy => RequireRole("Supplier")
+        //   Contractor role        => "contractor" (no dedicated policy, uses [Authorize])
+        var normalisedRole = dto.Role.ToLower() switch
+        {
+            "admin" => "admin",
+            "supplier" => "Supplier",
+            "contractor" => "contractor",
+            _ => dto.Role   // pass through unknown roles unchanged
+        };
+
         var user = new User
         {
             FullName = dto.FullName,
             Email = dto.Email,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
-            Role = dto.Role,
+            Role = normalisedRole,
             CompanyName = dto.CompanyName,
             AccountStatus = "Pending",
             CreatedDate = DateTime.UtcNow
         };
         _db.Users.Add(user);
         await _db.SaveChangesAsync();
+
         return Ok(new { message = "Account created. Awaiting admin approval." });
     }
 }
