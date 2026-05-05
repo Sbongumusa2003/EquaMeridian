@@ -18,19 +18,14 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IListingRepository, ListingRepository>();
 
-// ── CORS — must use a named policy ───────────────────────────────────────────
-// FIX 1: Changed from AddDefaultPolicy to a named policy "AllowAngular".
-// AddDefaultPolicy silently fails when UseCors() is called without a name
-// in some middleware pipeline configurations.
+// ── CORS ──────────────────────────────────────────────────────────────────────
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAngular", policy =>
     {
-        policy.WithOrigins("http://localhost:4200")
+        policy.SetIsOriginAllowed(origin => new Uri(origin).Host == "localhost")
               .AllowAnyHeader()
               .AllowAnyMethod();
-        // NOTE: Do NOT add AllowCredentials() unless you switch to
-        // cookie-based auth — it conflicts with wildcard AllowAnyHeader.
     });
 });
 
@@ -120,21 +115,10 @@ if (app.Environment.IsDevelopment())
 }
 
 // ── Middleware pipeline — ORDER MATTERS ───────────────────────────────────────
-// FIX 2: Removed app.UseHttpsRedirection().
-//   When running on the "http" profile (port 5143), HTTPS redirect is not
-//   needed and causes preflight OPTIONS requests to fail — the 307 redirect
-//   carries no CORS headers so the browser blocks it.
-
-// FIX 3: UseRouting() must come before UseCors().
 app.UseRouting();
-
-// FIX 4: UseCors() must come BEFORE UseAuthentication/UseAuthorization
-//   and must reference the named policy defined above.
 app.UseCors("AllowAngular");
-
 app.UseAuthentication();
 app.UseAuthorization();
-
 app.MapControllers();
 
 app.Run();
