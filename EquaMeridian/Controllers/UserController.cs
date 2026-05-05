@@ -1,9 +1,6 @@
-﻿// REPLACE EquaMeridian/Controllers/UserController.cs
-using EquaMeridian.DTOs.User;
-using EquaMeridian.Infrastructure.Data;
+﻿using EquaMeridian.DTOs.User;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 
 [ApiController]
@@ -14,13 +11,11 @@ public class UsersController : ControllerBase
     private readonly IUserRepository _repo;
     private readonly IAuditService _audit;
     private readonly IEmailService _email;
-    private readonly AppDbContext _db;
 
-    public UsersController(IUserRepository repo, IAuditService audit,
-                           IEmailService email, AppDbContext db)
-    { _repo = repo; _audit = audit; _email = email; _db = db; }
-
-    // ─── UC 1.2: View Users ───────────────────────────────────────────────────
+    public UsersController(IUserRepository repo,
+                           IAuditService audit,
+                           IEmailService email)
+    { _repo = repo; _audit = audit; _email = email; }
     [HttpGet]
     public async Task<IActionResult> GetAll(
         [FromQuery] string? search,
@@ -40,26 +35,6 @@ public class UsersController : ControllerBase
         return Ok(new { users, totalCount = total, page, pageSize });
     }
 
-    // ─── UC 1.3: Get Audit Log for a user ────────────────────────────────────
-    [HttpGet("{userId}/audit-log")]
-    public async Task<IActionResult> GetAuditLog(int userId)
-    {
-        var logs = await _db.AuditLogs
-            .Where(a => a.UserID == userId)
-            .OrderByDescending(a => a.Timestamp)
-            .Take(20)
-            .Select(a => new {
-                a.AuditID,
-                a.TransactionType,
-                a.Description,
-                a.Timestamp
-            })
-            .ToListAsync();
-
-        return Ok(logs);
-    }
-
-    // ─── UC 1.3: Update Account Status ───────────────────────────────────────
     [HttpPatch("{userId}/status")]
     public async Task<IActionResult> UpdateStatus(
         int userId, [FromBody] UpdateAccountStatusDto dto)

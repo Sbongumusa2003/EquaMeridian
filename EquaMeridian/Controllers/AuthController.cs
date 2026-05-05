@@ -1,10 +1,8 @@
-﻿// REPLACE EquaMeridian/Controllers/AuthController.cs
-using EquaMeridian.DTOs.Auth;
+﻿using EquaMeridian.DTOs.Auth;
 using EquaMeridian.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
 using System.Security.Claims;
 
 [ApiController]
@@ -20,7 +18,6 @@ public class AuthController : ControllerBase
         _db = db;
     }
 
-    // ─── UC 6.7: Login ────────────────────────────────────────────────────────
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest dto)
     {
@@ -30,26 +27,15 @@ public class AuthController : ControllerBase
         {
             var result = await _auth.LoginAsync(dto, ip);
             if (result == null)
-                return Unauthorized(new { message = "Incorrect email or password. Please try again." });
+                return Unauthorized(new { message = "Incorrect email or password." });
             return Ok(result);
         }
         catch (InvalidOperationException ex)
         {
-            // UC 6.7 Step 4c: Return status-specific message so Angular can display it
-            var status = ex.Message;
-            var message = status switch
-            {
-                "Locked" => "Your account has been temporarily locked due to multiple failed login attempts. Please try again in 30 minutes or contact support.",
-                "Pending" => "Your account is pending approval by an administrator. You will be notified by email once your account is activated.",
-                "Disabled" => "Your account has been disabled. Please contact support.",
-                "Suspended" => "Your account has been suspended. Please contact support.",
-                _ => $"Account access denied: {status}."
-            };
-            return StatusCode(403, new { message });
+            return StatusCode(403, new { message = $"Account is {ex.Message}." });
         }
     }
 
-    // ─── UC 6.8: Logout ───────────────────────────────────────────────────────
     [Authorize]
     [HttpPost("logout")]
     public async Task<IActionResult> Logout()
@@ -60,48 +46,15 @@ public class AuthController : ControllerBase
         return Ok(new { message = "Logged out successfully." });
     }
 
-    // ─── UC 6.9: Forgot Password ──────────────────────────────────────────────
     [HttpPost("forgot-password")]
     public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest dto)
     {
         if (!ModelState.IsValid) return BadRequest(ModelState);
         var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        try
-        {
-            await _auth.ForgotPasswordAsync(dto.Email, ip);
-            // Always return 200 to prevent email enumeration (UC 6.9 Step 3a)
-            return Ok(new { message = "If that email is registered, a reset link has been sent." });
-        }
-        catch (Exception)
-        {
-            // UC 6.9 Step 5a: Surface email dispatch failure
-            return StatusCode(500, new { message = "We were unable to send the reset email. Please try again later." });
-        }
+        await _auth.ForgotPasswordAsync(dto.Email, ip);
+        return Ok(new { message = "If that email is registered, a reset link has been sent." });
     }
 
-    // ─── UC 7.10: Validate Reset Token (pre-load check) ──────────────────────
-    /// <summary>
-    /// UC 7.10 Step 1: Called by the Angular component on ngOnInit to validate
-    /// the token BEFORE rendering the update-password form.
-    /// Returns 200 if valid, 400 with reason if expired or already used.
-    /// </summary>
-    [HttpGet("validate-reset-token")]
-    public async Task<IActionResult> ValidateResetToken([FromQuery] string token)
-    {
-        if (string.IsNullOrWhiteSpace(token))
-            return BadRequest(new { message = "Token is required." });
-
-        var result = await _auth.ValidateResetTokenAsync(token);
-        return result switch
-        {
-            TokenValidationResult.Valid => Ok(new { valid = true }),
-            TokenValidationResult.Expired => BadRequest(new { message = "This password reset link has expired. Reset links are valid for 24 hours." }),
-            TokenValidationResult.AlreadyUsed => BadRequest(new { message = "This password reset link has already been used." }),
-            _ => BadRequest(new { message = "This password reset link is invalid." })
-        };
-    }
-
-    // ─── UC 7.10: Reset Password ──────────────────────────────────────────────
     [HttpPost("reset-password")]
     public async Task<IActionResult> ResetPassword([FromBody] UpdatePasswordRequest dto)
     {
@@ -113,7 +66,6 @@ public class AuthController : ControllerBase
         return Ok(new { message = "Password reset successfully." });
     }
 
-    // ─── Register ─────────────────────────────────────────────────────────────
     [HttpPost("register")]
     public async Task<IActionResult> Register([FromBody] RegisterRequest dto)
     {
@@ -123,12 +75,16 @@ public class AuthController : ControllerBase
         if (existing != null)
             return Conflict(new { message = "An account with this email already exists." });
 
+        // Normalise role casing to match the authorization policies:
+        //   "AdminOnly"    policy => RequireRole("admin")
+        //   "SupplierOnly" policy => RequireRole("Supplier")
+        //   Contractor role        => "contractor" (no dedicated policy, uses [Authorize])
         var normalisedRole = dto.Role.ToLower() switch
         {
             "admin" => "admin",
             "supplier" => "Supplier",
             "contractor" => "contractor",
-            _ => dto.Role
+            _ => dto.Role   // pass through unknown roles unchanged
         };
 
         var user = new User

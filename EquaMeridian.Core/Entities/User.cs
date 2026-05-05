@@ -1,5 +1,4 @@
-﻿// REPLACE EquaMeridian.Core/Entities/User.cs
-public class User
+﻿public class User
 {
     public int UserID { get; set; }
     public string FullName { get; set; } = string.Empty;
@@ -12,13 +11,6 @@ public class User
     public string? CompanyName { get; set; }
     public DateTime CreatedDate { get; set; } = DateTime.UtcNow;
     public DateTime? LastLoginDate { get; set; }
-
-    /// <summary>
-    /// UC 7.10: Recorded when password is reset. Can be embedded in future JWTs
-    /// as a SecurityStamp to invalidate all sessions issued before this timestamp.
-    /// </summary>
-    public DateTime? LastPasswordChangeAt { get; set; }
-
     public ICollection<Listing> Listings { get; set; } = new List<Listing>();
     public ICollection<AuditLog> AuditLogs { get; set; } = new List<AuditLog>();
 }
