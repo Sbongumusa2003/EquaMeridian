@@ -1,4 +1,5 @@
-﻿using EquaMeridian.DTOs.Auth;
+﻿// REPLACE EquaMeridian/Services/AuthService.cs
+using EquaMeridian.DTOs.Auth;
 using EquaMeridian.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -6,6 +7,9 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+
+/// <summary>UC 7.10: Result of pre-validating a password reset token.</summary>
+public enum TokenValidationResult { Valid, Expired, AlreadyUsed, NotFound }
 
 public class AuthService : IAuthService
 {
@@ -18,10 +22,22 @@ public class AuthService : IAuthService
                        IEmailService email, IAuditService audit)
     { _db = db; _config = config; _email = email; _audit = audit; }
 
+    // ─── UC 6.7: Login ────────────────────────────────────────────────────────
     public async Task<LoginResponse?> LoginAsync(LoginRequest dto, string ip)
     {
         var user = await _db.Users.FirstOrDefaultAsync(u => u.Email == dto.Email);
         if (user == null) return null;
+
+        // UC 6.7: Auto-unlock if lockout period has expired (30-minute lockout)
+        if (user.AccountStatus == "Locked" &&
+            user.LockoutExpiry.HasValue &&
+            user.LockoutExpiry.Value <= DateTime.UtcNow)
+        {
+            user.AccountStatus = "Active";
+            user.FailedAttemptCount = 0;
+            user.LockoutExpiry = null;
+            await _db.SaveChangesAsync();
+        }
 
         if (user.AccountStatus != "Active")
             throw new InvalidOperationException(user.AccountStatus);
@@ -55,27 +71,37 @@ public class AuthService : IAuthService
         return new LoginResponse
         {
             Token = token,
-            Role = user.Role,   // returned as-is so Angular AuthService can lowercase it
+            Role = user.Role,
             UserID = user.UserID,
             FullName = user.FullName,
             Expiry = expiry
         };
     }
 
+    // ─── UC 6.8: Logout ───────────────────────────────────────────────────────
     public async Task LogoutAsync(int userId, string token)
     {
         await _audit.LogAsync(userId, "LOGOUT", "User logged out", null, null, null, null);
     }
 
+    // ─── UC 6.9: Forgot Password ──────────────────────────────────────────────
     public async Task ForgotPasswordAsync(string email, string ip)
     {
         var user = await _db.Users
             .FirstOrDefaultAsync(u => u.Email == email && u.AccountStatus == "Active");
-        if (user == null) return;
+
+        // UC 6.9 Step 3a: Log even when email not found; return silently
+        if (user == null)
+        {
+            await _audit.LogAsync(0, "PASSWORD_RESET_EMAIL_NOT_FOUND",
+                $"Reset requested for unknown email: {email}", null, null, null, ip);
+            return;
+        }
 
         var hourAgo = DateTime.UtcNow.AddHours(-1);
         var recentCount = await _db.PasswordReset
             .CountAsync(p => p.UserID == user.UserID && p.CreatedAt >= hourAgo);
+        // UC 6.9 Step 4a: Rate limit — silently discard excess requests
         if (recentCount >= 3) return;
 
         var rawToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
@@ -91,11 +117,37 @@ public class AuthService : IAuthService
         await _db.SaveChangesAsync();
 
         var resetUrl = $"http://localhost:4200/auth/reset-password?token={Uri.EscapeDataString(rawToken)}";
+
+        // UC 6.9 Step 5: Dispatch email — throws on failure so controller can catch it
         await _email.SendPasswordResetEmailAsync(user.Email, user.FullName, resetUrl);
+
         await _audit.LogAsync(user.UserID, "PASSWORD_RESET_REQUEST",
             "Reset email dispatched", null, null, null, ip);
     }
 
+    // ─── UC 7.10: Validate Reset Token (pre-load check) ──────────────────────
+    /// <summary>
+    /// UC 7.10 Step 1: Called before rendering the update-password form.
+    /// Returns a <see cref="TokenValidationResult"/> without consuming the token.
+    /// </summary>
+    public async Task<TokenValidationResult> ValidateResetTokenAsync(string rawToken)
+    {
+        var tokenHash = HashToken(rawToken);
+        var record = await _db.PasswordReset
+            .FirstOrDefaultAsync(p => p.TokenHash == tokenHash);
+
+        if (record == null) return TokenValidationResult.NotFound;
+
+        // UC 7.10 Step 1b: Already used
+        if (record.IsUsed) return TokenValidationResult.AlreadyUsed;
+
+        // UC 7.10 Step 1a: Expired
+        if (record.ExpiryTimestamp <= DateTime.UtcNow) return TokenValidationResult.Expired;
+
+        return TokenValidationResult.Valid;
+    }
+
+    // ─── UC 7.10: Reset Password ──────────────────────────────────────────────
     public async Task<bool> ResetPasswordAsync(UpdatePasswordRequest dto, string ip)
     {
         var tokenHash = HashToken(dto.Token);
@@ -111,6 +163,14 @@ public class AuthService : IAuthService
 
         user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.NewPassword);
         record.IsUsed = true;
+
+        // UC 7.10: Terminate all existing sessions by updating a session version field.
+        // Because we use stateless JWTs there is no server-side session store.
+        // The recommended approach is a SecurityStamp that is embedded in the JWT;
+        // tokens issued before the stamp change are rejected by the JWT validator.
+        // For now, record the timestamp so future implementations can compare.
+        user.LastPasswordChangeAt = DateTime.UtcNow;
+
         await _db.SaveChangesAsync();
 
         await _email.SendPasswordChangedNotificationAsync(user.Email, user.FullName);
@@ -119,12 +179,10 @@ public class AuthService : IAuthService
         return true;
     }
 
+    // ─── Private helpers ──────────────────────────────────────────────────────
+
     private string GenerateJwt(User user, DateTime expiry)
     {
-        // IMPORTANT: The role claim must match what the authorization policies expect.
-        // Policy "AdminOnly"    => RequireRole("admin")    => store Role as "admin"
-        // Policy "SupplierOnly" => RequireRole("Supplier") => store Role as "Supplier"
-        // We store user.Role verbatim; callers must seed roles with the correct casing.
         var claims = new[]
         {
             new Claim(ClaimTypes.NameIdentifier, user.UserID.ToString()),
