@@ -1,5 +1,6 @@
 ﻿public class AuditLog
 {
+
     public int AuditID { get; set; }
     public int UserID { get; set; }
     public int? AdminID { get; set; }
