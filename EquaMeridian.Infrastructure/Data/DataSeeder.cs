@@ -7,10 +7,7 @@ public static class DataSeeder
 {
     public static async Task SeedAsync(AppDbContext db)
     {
-        // Apply any pending migrations automatically
         await db.Database.MigrateAsync();
-
-        // ── Seed admin accounts ──────────────────────────────────────────────
         var admins = new[]
         {
             new { FullName = "Super Admin",   Email = "admin@equameridian.co.za",  Password = "Admin@1234!" },

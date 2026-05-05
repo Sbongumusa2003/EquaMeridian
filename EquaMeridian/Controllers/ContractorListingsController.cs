@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 
 [ApiController]
 [Route("api/contractor/listings")]
-[Authorize] // any authenticated user
+[Authorize]
 public class ContractorListingsController : ControllerBase
 {
     private readonly IListingRepository _repo;
