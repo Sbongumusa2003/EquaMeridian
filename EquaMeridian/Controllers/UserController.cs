@@ -1,6 +1,8 @@
 ﻿using EquaMeridian.DTOs.User;
+using EquaMeridian.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 
 [ApiController]
@@ -11,11 +13,14 @@ public class UsersController : ControllerBase
     private readonly IUserRepository _repo;
     private readonly IAuditService _audit;
     private readonly IEmailService _email;
+    private readonly AppDbContext _db;
 
     public UsersController(IUserRepository repo,
                            IAuditService audit,
-                           IEmailService email)
-    { _repo = repo; _audit = audit; _email = email; }
+                           IEmailService email,
+                           AppDbContext db)
+    { _repo = repo; _audit = audit; _email = email; _db = db; }
+
     [HttpGet]
     public async Task<IActionResult> GetAll(
         [FromQuery] string? search,
@@ -57,5 +62,23 @@ public class UsersController : ControllerBase
         await _email.SendAccountStatusChangedAsync(user.Email, user.FullName, dto.NewStatus);
 
         return Ok(new { userId, newStatus = dto.NewStatus });
+    }
+    [HttpGet("{userId}/audit-log")]
+    public async Task<IActionResult> GetAuditLog(int userId)
+    {
+        var logs = await _db.AuditLogs
+            .Where(a => a.UserID == userId)
+            .OrderByDescending(a => a.Timestamp)
+            .Take(50)
+            .Select(a => new
+            {
+                auditID = a.AuditID,
+                transactionType = a.TransactionType,
+                description = a.Description,
+                timestamp = a.Timestamp
+            })
+            .ToListAsync();
+
+        return Ok(logs);
     }
 }
