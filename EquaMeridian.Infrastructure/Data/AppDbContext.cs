@@ -10,6 +10,8 @@ public class AppDbContext : DbContext
     public DbSet<Listing> Listings => Set<Listing>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<PasswordReset> PasswordReset => Set<PasswordReset>();
+    public DbSet<Document> Documents => Set<Document>();
+    public DbSet<DocumentType> DocumentTypes => Set<DocumentType>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -37,5 +39,15 @@ public class AppDbContext : DbContext
             .WithMany()
             .HasForeignKey(p => p.UserID)
             .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<Document>()
+        .HasOne(d => d.User)
+        .WithMany()
+        .HasForeignKey(d => d.UserID);
+
+        modelBuilder.Entity<Document>()
+            .HasOne(d => d.DocType)
+            .WithMany()
+            .HasForeignKey(d => d.DocTypeID);
     }
 }

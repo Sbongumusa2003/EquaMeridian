@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Authorization;
+﻿using EquaMeridian.DTOs.Listings;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 [ApiController]
@@ -27,4 +28,28 @@ public class ContractorListingsController : ControllerBase
         var listing = await _repo.GetByIdAsync(id);
         return listing == null ? NotFound() : Ok(listing);
     }
+
+    [HttpGet("compare")]
+    public async Task<IActionResult> Compare([FromQuery] string ids)
+    {
+        var idList = ids.Split(',')
+                       .Select(s => int.TryParse(s.Trim(), out var n) ? n : (int?)null)
+                       .Where(n => n.HasValue).Select(n => n!.Value).ToList();
+
+        if (idList.Count < 2)
+            return BadRequest(new { message = "Please select at least two listings to compare." });
+        if (idList.Count > 4)
+            return BadRequest(new { message = "Maximum 4 listings can be compared." });
+
+        var listings = new List<ListingDto>();
+        foreach (var id in idList)
+        {
+            var l = await _repo.GetByIdAsync(id);
+            if (l == null || l.AvailabilityStatus != "Active")
+                return NotFound(new { message = $"Listing {id} not found or not active." });
+            listings.Add(l);
+        }
+        return Ok(listings);
+    }
+
 }
