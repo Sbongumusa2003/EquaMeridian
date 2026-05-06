@@ -1,6 +1,8 @@
 ﻿using EquaMeridian.DTOs.Listings;
+using EquaMeridian.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 
 [ApiController]
@@ -12,17 +14,23 @@ public class SupplierListingsController : ControllerBase
     private readonly IAuditService _audit;
     private readonly IEmailService _email;
     private readonly IConfiguration _config;
+    private readonly AppDbContext _db;
 
     public SupplierListingsController(IListingRepository repo,
-        IAuditService audit, IEmailService email, IConfiguration config)
-    { _repo = repo; _audit = audit; _email = email; _config = config; }
+        IAuditService audit, IEmailService email, IConfiguration config, AppDbContext db)
+    { _repo = repo; _audit = audit; _email = email; _config = config; _db = db; }
 
     private int SupplierId =>
         int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateListingDto dto)
     {
         if (!ModelState.IsValid) return BadRequest(ModelState);
+
+        var categoryExists = await _db.Categories.AnyAsync(c => c.CategoryID == dto.CategoryID);
+        if (!categoryExists)
+            return BadRequest(new { message = "Invalid category." });
 
         var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
         var listingId = await _repo.CreateAsync(dto, SupplierId);
@@ -40,6 +48,7 @@ public class SupplierListingsController : ControllerBase
             new { listingId },
             new { listingId, status = "Pending" });
     }
+
     [HttpGet]
     public async Task<IActionResult> GetOwn(
         [FromQuery] string? status,
@@ -55,11 +64,16 @@ public class SupplierListingsController : ControllerBase
 
         return Ok(new { listings = enriched, totalCount = total, page, pageSize });
     }
+
     [HttpPut("{listingId}")]
     public async Task<IActionResult> Update(
         int listingId, [FromBody] UpdateListingDto dto)
     {
         if (!ModelState.IsValid) return BadRequest(ModelState);
+
+        var categoryExists = await _db.Categories.AnyAsync(c => c.CategoryID == dto.CategoryID);
+        if (!categoryExists)
+            return BadRequest(new { message = "Invalid category." });
 
         var listing = await _repo.GetByIdAsync(listingId);
         if (listing == null || listing.SupplierID != SupplierId) return NotFound();
@@ -88,6 +102,7 @@ public class SupplierListingsController : ControllerBase
 
         if (listing.AvailabilityStatus != "Active")
             return BadRequest(new { message = "Only Active listings can be deactivated." });
+
         var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
         await _repo.DeactivateAsync(listingId);
 
@@ -97,6 +112,7 @@ public class SupplierListingsController : ControllerBase
 
         return Ok(new { listingId, status = "Inactive" });
     }
+
     private static object GetAllowedActions(string status) => status switch
     {
         "Active" => new { canEdit = true, canDeactivate = true, contactAdmin = false },
