@@ -1,4 +1,6 @@
-﻿public interface IListingRepository
+﻿using EquaMeridian.DTOs.Listings;
+
+public interface IListingRepository
 {
     Task<(IEnumerable<ListingDto> Listings, int TotalCount)> GetAllAsync(
         string? search, int? category, string? status, int page, int pageSize);

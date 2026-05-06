@@ -12,7 +12,6 @@ public class AppDbContext : DbContext
     public DbSet<PasswordReset> PasswordReset => Set<PasswordReset>();
     public DbSet<Document> Documents => Set<Document>();
     public DbSet<DocumentType> DocumentTypes => Set<DocumentType>();
-
     public DbSet<Category> Categories => Set<Category>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -43,6 +42,8 @@ public class AppDbContext : DbContext
             .HasForeignKey(p => p.UserID)
             .OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<Document>()
+            .HasKey(d => d.DocID);
+        modelBuilder.Entity<Document>()
             .HasOne(d => d.User)
             .WithMany()
             .HasForeignKey(d => d.UserID);
@@ -50,5 +51,9 @@ public class AppDbContext : DbContext
             .HasOne(d => d.DocType)
             .WithMany()
             .HasForeignKey(d => d.DocTypeID);
+        modelBuilder.Entity<DocumentType>()
+            .HasKey(dt => dt.DocTypeID);
+        modelBuilder.Entity<Category>()
+            .HasKey(c => c.CategoryID);
     }
 }
