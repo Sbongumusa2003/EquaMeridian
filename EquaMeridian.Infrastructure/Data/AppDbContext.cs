@@ -13,38 +13,39 @@ public class AppDbContext : DbContext
     public DbSet<Document> Documents => Set<Document>();
     public DbSet<DocumentType> DocumentTypes => Set<DocumentType>();
 
+    public DbSet<Category> Categories => Set<Category>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<User>()
             .HasIndex(u => u.Email).IsUnique();
-
+        modelBuilder.Entity<User>()
+            .Property(u => u.RegistrationNumber)
+            .HasMaxLength(100);
         modelBuilder.Entity<Listing>()
             .HasOne(l => l.Supplier)
             .WithMany(u => u.Listings)
             .HasForeignKey(l => l.SupplierID);
-
         modelBuilder.Entity<Listing>()
             .Property(l => l.DailyRateZAR)
             .HasColumnType("decimal(18,2)");
-
         modelBuilder.Entity<Listing>()
             .Property(l => l.WeeklyRateZAR)
             .HasColumnType("decimal(18,2)");
-
         modelBuilder.Entity<AuditLog>()
             .HasKey(a => a.AuditID);
-
+        modelBuilder.Entity<AuditLog>()
+            .Property(a => a.UserID)
+            .IsRequired(false);
         modelBuilder.Entity<PasswordReset>()
             .HasOne(p => p.User)
             .WithMany()
             .HasForeignKey(p => p.UserID)
             .OnDelete(DeleteBehavior.Cascade);
-
         modelBuilder.Entity<Document>()
-        .HasOne(d => d.User)
-        .WithMany()
-        .HasForeignKey(d => d.UserID);
-
+            .HasOne(d => d.User)
+            .WithMany()
+            .HasForeignKey(d => d.UserID);
         modelBuilder.Entity<Document>()
             .HasOne(d => d.DocType)
             .WithMany()

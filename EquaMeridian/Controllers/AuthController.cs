@@ -1,8 +1,6 @@
 ﻿using EquaMeridian.DTOs.Auth;
-using EquaMeridian.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 
 [ApiController]
@@ -10,18 +8,16 @@ using System.Security.Claims;
 public class AuthController : ControllerBase
 {
     private readonly IAuthService _auth;
-    private readonly AppDbContext _db;
-
-    public AuthController(IAuthService auth, AppDbContext db)
+    public AuthController(IAuthService auth)
     {
         _auth = auth;
-        _db = db;
     }
 
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] LoginRequest dto)
     {
         if (!ModelState.IsValid) return BadRequest(ModelState);
+
         var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         try
         {
@@ -50,6 +46,7 @@ public class AuthController : ControllerBase
     public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest dto)
     {
         if (!ModelState.IsValid) return BadRequest(ModelState);
+
         var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         await _auth.ForgotPasswordAsync(dto.Email, ip);
         return Ok(new { message = "If that email is registered, a reset link has been sent." });
@@ -59,34 +56,22 @@ public class AuthController : ControllerBase
     public async Task<IActionResult> ResetPassword([FromBody] UpdatePasswordRequest dto)
     {
         if (!ModelState.IsValid) return BadRequest(ModelState);
+
         var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         var success = await _auth.ResetPasswordAsync(dto, ip);
         if (!success)
             return BadRequest(new { message = "Token is invalid, expired, or already used." });
         return Ok(new { message = "Password reset successfully." });
     }
-
     [HttpPost("register")]
     public async Task<IActionResult> Register([FromBody] RegisterRequest dto)
     {
         if (!ModelState.IsValid) return BadRequest(ModelState);
 
-        var existing = await _db.Users.FirstOrDefaultAsync(u => u.Email == dto.Email);
-        if (existing != null)
-            return Conflict(new { message = "An account with this email already exists." });
+        var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var (success, message) = await _auth.RegisterAsync(dto, ip);
 
-        var user = new User
-        {
-            FullName = dto.FullName,
-            Email = dto.Email,
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
-            Role = dto.Role,
-            CompanyName = dto.CompanyName,
-            AccountStatus = "Pending",
-            CreatedDate = DateTime.UtcNow
-        };
-        _db.Users.Add(user);
-        await _db.SaveChangesAsync();
-        return Ok(new { message = "Account created. Awaiting admin approval." });
+        if (!success) return Conflict(new { message });
+        return Ok(new { message });
     }
 }

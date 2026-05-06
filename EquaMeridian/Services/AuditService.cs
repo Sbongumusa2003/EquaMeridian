@@ -5,7 +5,7 @@ public class AuditService : IAuditService
     private readonly AppDbContext _db;
     public AuditService(AppDbContext db) => _db = db;
 
-    public async Task LogAsync(int userId, string transactionType,
+    public async Task LogAsync(int? userId, string transactionType,
         string? description, int? adminId, int? listingId,
         string? previousValues, string? ipAddress, string? newValues = null)
     {

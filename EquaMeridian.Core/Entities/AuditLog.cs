@@ -1,8 +1,8 @@
 ﻿public class AuditLog
 {
-
     public int AuditID { get; set; }
-    public int UserID { get; set; }
+    public int? UserID { get; set; }
+
     public int? AdminID { get; set; }
     public int? ListingID { get; set; }
     public string TransactionType { get; set; } = string.Empty;

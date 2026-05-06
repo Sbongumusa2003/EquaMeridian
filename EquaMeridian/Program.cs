@@ -7,29 +7,41 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// ── Database ──────────────────────────────────────────────────────────────────
 builder.Services.AddDbContext<AppDbContext>(opt =>
     opt.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// ── App Services ──────────────────────────────────────────────────────────────
 builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IListingRepository, ListingRepository>();
-
-// ── CORS ──────────────────────────────────────────────────────────────────────
+builder.Services.AddScoped<IDocumentRepository, DocumentRepository>();
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAngular", policy =>
     {
-        policy.SetIsOriginAllowed(origin => new Uri(origin).Host == "localhost")
-              .AllowAnyHeader()
-              .AllowAnyMethod();
+        var allowedOrigins = builder.Configuration
+            .GetSection("App:AllowedOrigins")
+            .Get<string[]>();
+
+        if (allowedOrigins?.Length > 0)
+        {
+            policy.WithOrigins(allowedOrigins)
+                  .AllowAnyHeader()
+                  .AllowAnyMethod();
+        }
+        else
+        {
+            policy.SetIsOriginAllowed(origin => new Uri(origin).Host == "localhost")
+                  .AllowAnyHeader()
+                  .AllowAnyMethod();
+        }
     });
 });
+var jwtKey = builder.Configuration["Jwt:Key"]
+    ?? throw new InvalidOperationException(
+        "Jwt:Key is not configured. Set it via user-secrets or an environment variable.");
 
-// ── JWT Authentication ────────────────────────────────────────────────────────
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(opt =>
     {
@@ -41,19 +53,14 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateIssuerSigningKey = true,
             ValidIssuer = builder.Configuration["Jwt:Issuer"],
             ValidAudience = builder.Configuration["Jwt:Audience"],
-            IssuerSigningKey = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
         };
     });
-
-// ── Authorization Policies ────────────────────────────────────────────────────
 builder.Services.AddAuthorization(opt =>
 {
     opt.AddPolicy("AdminOnly", p => p.RequireRole("admin"));
     opt.AddPolicy("SupplierOnly", p => p.RequireRole("Supplier"));
 });
-
-// ── MVC + Swagger ─────────────────────────────────────────────────────────────
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
@@ -81,18 +88,12 @@ builder.Services.AddSwaggerGen(c =>
         Array.Empty<string>()
     }});
 });
-
-// ─────────────────────────────────────────────────────────────────────────────
 var app = builder.Build();
-
-// ── Seed database on startup ──────────────────────────────────────────────────
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     await DataSeeder.SeedAsync(db);
 }
-
-// ── Global exception handler ──────────────────────────────────────────────────
 app.Use(async (context, next) =>
 {
     try { await next(); }
@@ -106,15 +107,11 @@ app.Use(async (context, next) =>
         await context.Response.WriteAsJsonAsync(new { message });
     }
 });
-
-// ── Swagger (dev only) ────────────────────────────────────────────────────────
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
-
-// ── Middleware pipeline — ORDER MATTERS ───────────────────────────────────────
 app.UseRouting();
 app.UseCors("AllowAngular");
 app.UseAuthentication();

@@ -17,10 +17,20 @@ public class AuthService : IAuthService
     public AuthService(AppDbContext db, IConfiguration config,
                        IEmailService email, IAuditService audit)
     { _db = db; _config = config; _email = email; _audit = audit; }
+
     public async Task<LoginResponse?> LoginAsync(LoginRequest dto, string ip)
     {
         var user = await _db.Users.FirstOrDefaultAsync(u => u.Email == dto.Email);
         if (user == null) return null;
+        if (user.AccountStatus == "Locked" &&
+            user.LockoutExpiry.HasValue &&
+            user.LockoutExpiry.Value <= DateTime.UtcNow)
+        {
+            user.AccountStatus = "Active";
+            user.FailedAttemptCount = 0;
+            user.LockoutExpiry = null;
+            await _db.SaveChangesAsync();
+        }
 
         if (user.AccountStatus != "Active")
             throw new InvalidOperationException(user.AccountStatus);
@@ -34,7 +44,7 @@ public class AuthService : IAuthService
                 user.LockoutExpiry = DateTime.UtcNow.AddMinutes(30);
                 await _email.SendLockoutEmailAsync(user.Email, user.FullName);
                 await _audit.LogAsync(user.UserID, "LOGIN_LOCKOUT",
-                    $"Account locked after 5 failed attempts", null, null, null, ip);
+                    "Account locked after 5 failed attempts", null, null, null, ip);
             }
             await _db.SaveChangesAsync();
             return null;
@@ -60,15 +70,18 @@ public class AuthService : IAuthService
             Expiry = expiry
         };
     }
+
     public async Task LogoutAsync(int userId, string token)
     {
         await _audit.LogAsync(userId, "LOGOUT", "User logged out", null, null, null, null);
     }
+
     public async Task ForgotPasswordAsync(string email, string ip)
     {
         var user = await _db.Users
             .FirstOrDefaultAsync(u => u.Email == email && u.AccountStatus == "Active");
         if (user == null) return;
+
         var hourAgo = DateTime.UtcNow.AddHours(-1);
         var recentCount = await _db.PasswordReset
             .CountAsync(p => p.UserID == user.UserID && p.CreatedAt >= hourAgo);
@@ -85,15 +98,20 @@ public class AuthService : IAuthService
             IsUsed = false
         });
         await _db.SaveChangesAsync();
+        var encodedToken = Uri.EscapeDataString(rawToken);
+        var frontendBaseUrl = _config["App:FrontendBaseUrl"] ?? "https://yourapp.com";
+        var resetUrl = $"{frontendBaseUrl}/reset-password?token={encodedToken}";
 
-        var resetUrl = $"https://yourapp.com/reset-password?token={rawToken}";
         await _email.SendPasswordResetEmailAsync(user.Email, user.FullName, resetUrl);
         await _audit.LogAsync(user.UserID, "PASSWORD_RESET_REQUEST",
             "Reset email dispatched", null, null, null, ip);
     }
+
     public async Task<bool> ResetPasswordAsync(UpdatePasswordRequest dto, string ip)
     {
-        var tokenHash = HashToken(dto.Token);
+        var decodedToken = Uri.UnescapeDataString(dto.Token);
+        var tokenHash = HashToken(decodedToken);
+
         var record = await _db.PasswordReset
             .Include(p => p.User)
             .FirstOrDefaultAsync(p => p.TokenHash == tokenHash
@@ -113,6 +131,31 @@ public class AuthService : IAuthService
             "Password reset via token", null, null, null, ip);
         return true;
     }
+    public async Task<(bool Success, string Message)> RegisterAsync(RegisterRequest dto, string ip)
+    {
+        var existing = await _db.Users.FirstOrDefaultAsync(u => u.Email == dto.Email);
+        if (existing != null)
+            return (false, "An account with this email already exists.");
+
+        var user = new User
+        {
+            FullName = dto.FullName,
+            Email = dto.Email,
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
+            Role = dto.Role,
+            CompanyName = dto.CompanyName,
+            AccountStatus = "Pending",
+            CreatedDate = DateTime.UtcNow
+        };
+        _db.Users.Add(user);
+        await _db.SaveChangesAsync();
+
+        await _audit.LogAsync(user.UserID, "USER_REGISTERED",
+            $"New {dto.Role} account registered: {dto.Email}", null, null, null, ip);
+
+        return (true, "Account created. Awaiting admin approval.");
+    }
+
     private string GenerateJwt(User user, DateTime expiry)
     {
         var claims = new[]
@@ -123,7 +166,7 @@ public class AuthService : IAuthService
             new Claim(ClaimTypes.Name,           user.FullName)
         };
         var key = new SymmetricSecurityKey(
-                        Encoding.UTF8.GetBytes(_config["Jwt:Key"]!));
+                      Encoding.UTF8.GetBytes(_config["Jwt:Key"]!));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
         var token = new JwtSecurityToken(
             issuer: _config["Jwt:Issuer"],
@@ -135,6 +178,5 @@ public class AuthService : IAuthService
     }
 
     private static string HashToken(string raw)
-        => Convert.ToBase64String(
-               SHA256.HashData(Encoding.UTF8.GetBytes(raw)));
+        => Convert.ToBase64String(SHA256.HashData(Encoding.UTF8.GetBytes(raw)));
 }

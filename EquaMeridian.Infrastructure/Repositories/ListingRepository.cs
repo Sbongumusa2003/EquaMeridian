@@ -11,15 +11,21 @@ public class ListingRepository : IListingRepository
         string? search, int? category, string? status, int page, int pageSize)
     {
         var q = _db.Listings.Include(l => l.Supplier).AsQueryable();
+
         if (!string.IsNullOrWhiteSpace(search))
             q = q.Where(l => l.ListingTitle.Contains(search) ||
                              l.Supplier.FullName.Contains(search));
+
         if (category.HasValue) q = q.Where(l => l.CategoryID == category.Value);
         if (!string.IsNullOrWhiteSpace(status)) q = q.Where(l => l.AvailabilityStatus == status);
+
         var total = await q.CountAsync();
-        var items = await q.OrderByDescending(l => l.CreatedDate)
+        var items = await q
+            .OrderByDescending(l => l.CreatedDate)
             .Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(l => MapToDto(l)).ToListAsync();
+            .Select(l => MapToDto(l))
+            .ToListAsync();
+
         return (items, total);
     }
 
@@ -28,6 +34,14 @@ public class ListingRepository : IListingRepository
                .Where(l => l.ListingID == id)
                .Select(l => (ListingDto?)MapToDto(l))
                .FirstOrDefaultAsync();
+    public async Task<IEnumerable<ListingDto>> GetByIdsAsync(IEnumerable<int> ids)
+    {
+        return await _db.Listings
+            .Include(l => l.Supplier)
+            .Where(l => ids.Contains(l.ListingID))
+            .Select(l => MapToDto(l))
+            .ToListAsync();
+    }
 
     public async Task UpdateStatusAsync(int id, string status)
     {
@@ -41,19 +55,25 @@ public class ListingRepository : IListingRepository
     {
         var q = _db.Listings.Include(l => l.Supplier)
                    .Where(l => l.SupplierID == supplierId).AsQueryable();
+
         if (!string.IsNullOrWhiteSpace(status)) q = q.Where(l => l.AvailabilityStatus == status);
+
         var total = await q.CountAsync();
-        var items = await q.OrderByDescending(l => l.CreatedDate)
+        var items = await q
+            .OrderByDescending(l => l.CreatedDate)
             .Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(l => MapToDto(l)).ToListAsync();
+            .Select(l => MapToDto(l))
+            .ToListAsync();
+
         return (items, total);
     }
 
     public async Task<int> CreateAsync(CreateListingDto dto, int supplierId)
     {
-        bool isDuplicate = await _db.Listings.AnyAsync(l =>
+        var isDuplicate = await _db.Listings.AnyAsync(l =>
             l.SupplierID == supplierId &&
             l.ListingTitle.ToLower() == dto.ListingTitle.ToLower());
+
         var listing = new Listing
         {
             ListingTitle = dto.ListingTitle,
@@ -80,7 +100,10 @@ public class ListingRepository : IListingRepository
     public async Task UpdateAsync(int id, UpdateListingDto dto)
     {
         var l = await _db.Listings.FindAsync(id) ?? throw new KeyNotFoundException();
-        var priceChange = Math.Abs((dto.DailyRateZAR - l.DailyRateZAR) / l.DailyRateZAR);
+        var priceChange = l.DailyRateZAR == 0
+            ? 1m
+            : Math.Abs((dto.DailyRateZAR - l.DailyRateZAR) / l.DailyRateZAR);
+
         l.ListingTitle = dto.ListingTitle;
         l.CategoryID = dto.CategoryID;
         l.Description = dto.Description;
@@ -92,7 +115,9 @@ public class ListingRepository : IListingRepository
         l.Location = dto.Location;
         l.DailyRateZAR = dto.DailyRateZAR;
         l.WeeklyRateZAR = dto.WeeklyRateZAR;
+
         if (priceChange >= 0.20m) l.AvailabilityStatus = "Pending";
+
         await _db.SaveChangesAsync();
     }
 
@@ -104,7 +129,7 @@ public class ListingRepository : IListingRepository
         await _db.SaveChangesAsync();
     }
 
-    private static ListingDto MapToDto(Listing l) => new ListingDto
+    private static ListingDto MapToDto(Listing l) => new()
     {
         ListingID = l.ListingID,
         ListingTitle = l.ListingTitle,

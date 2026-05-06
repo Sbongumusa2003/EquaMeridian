@@ -9,6 +9,9 @@
     public int FailedAttemptCount { get; set; } = 0;
     public DateTime? LockoutExpiry { get; set; }
     public string? CompanyName { get; set; }
+
+    public string? RegistrationNumber { get; set; }
+
     public DateTime CreatedDate { get; set; } = DateTime.UtcNow;
     public DateTime? LastLoginDate { get; set; }
     public ICollection<Listing> Listings { get; set; } = new List<Listing>();

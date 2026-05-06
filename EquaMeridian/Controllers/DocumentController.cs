@@ -1,23 +1,23 @@
-﻿using EquaMeridian.Infrastructure.Data;
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
+using EquaMeridian.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore;
 
 [ApiController]
 [Route("api/users/me/documents")]
 [Authorize]
 public class DocumentController : ControllerBase
 {
-    private static readonly string[] AllowedExtensions = { ".pdf", ".jpg", ".jpeg", ".png" };
-
-    private readonly AppDbContext _db;
+    private readonly IDocumentRepository _repo;
     private readonly IAuditService _audit;
+    private readonly AppDbContext _db;
 
-    public DocumentController(AppDbContext db, IAuditService audit)
+    public DocumentController(IDocumentRepository repo, IAuditService audit, AppDbContext db)
     {
-        _db = db;
+        _repo = repo;
         _audit = audit;
+        _db = db;
     }
 
     private int UserId =>
@@ -33,9 +33,7 @@ public class DocumentController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetMyDocuments()
     {
-        var docs = await _db.Documents
-            .Where(d => d.UserID == UserId)
-            .ToListAsync();
+        var docs = await _repo.GetByUserAsync(UserId);
         return Ok(docs);
     }
 
@@ -45,35 +43,20 @@ public class DocumentController : ControllerBase
         if (file == null || file.Length == 0)
             return BadRequest(new { message = "Please add a document." });
 
-        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
-        if (!AllowedExtensions.Contains(ext))
-            return BadRequest(new { message = "Unsupported file format. Please upload PDF, JPG, or PNG." });
-
-        var uploadPath = Path.Combine("Uploads", "Documents", UserId.ToString());
-        Directory.CreateDirectory(uploadPath);
-
-        var fileName = $"{Guid.NewGuid()}{ext}";
-        var fullPath = Path.Combine(uploadPath, fileName);
-
-        using (var stream = System.IO.File.Create(fullPath))
-            await file.CopyToAsync(stream);
-
-        var doc = new Document
+        try
         {
-            DocTypeID = docTypeId,
-            DocName = file.FileName,
-            FilePath = fullPath,
-            VerificationStatus = "Pending",
-            UserID = UserId
-        };
-        _db.Documents.Add(doc);
-        await _db.SaveChangesAsync();
+            var docId = await _repo.UploadAsync(UserId, docTypeId, file);
 
-        var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
-        await _audit.LogAsync(UserId, "DOCUMENT_UPLOADED",
-            $"Document '{file.FileName}' uploaded", null, null, null, ip);
+            var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
+            await _audit.LogAsync(UserId, "DOCUMENT_UPLOADED",
+                $"Document '{file.FileName}' uploaded", null, null, null, ip);
 
-        return Ok(new { message = "Document successfully added.", doc.DocID });
+            return Ok(new { message = "Document successfully added.", docId });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPut("{docId}")]
@@ -82,34 +65,18 @@ public class DocumentController : ControllerBase
         if (file == null || file.Length == 0)
             return BadRequest(new { message = "Please add a document." });
 
-        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
-        if (!AllowedExtensions.Contains(ext))
-            return BadRequest(new { message = "Unsupported file format." });
+        var (success, message) = await _repo.ReplaceAsync(UserId, docId, file);
 
-        var doc = await _db.Documents
-            .FirstOrDefaultAsync(d => d.DocID == docId && d.UserID == UserId);
-        if (doc == null) return NotFound();
-
-        if (System.IO.File.Exists(doc.FilePath))
-            System.IO.File.Delete(doc.FilePath);
-
-        var uploadPath = Path.GetDirectoryName(doc.FilePath)!;
-        var fileName = $"{Guid.NewGuid()}{ext}";
-        var fullPath = Path.Combine(uploadPath, fileName);
-
-        using (var stream = System.IO.File.Create(fullPath))
-            await file.CopyToAsync(stream);
-
-        doc.DocName = file.FileName;
-        doc.FilePath = fullPath;
-        doc.VerificationStatus = "Pending";
-        doc.UploadedDate = DateTime.UtcNow;
-        await _db.SaveChangesAsync();
+        if (!success)
+        {
+            if (message == "Not found.") return NotFound();
+            return BadRequest(new { message });
+        }
 
         var ip = HttpContext.Connection.RemoteIpAddress?.ToString();
         await _audit.LogAsync(UserId, "DOCUMENT_REPLACED",
             $"Document {docId} replaced with '{file.FileName}'", null, null, null, ip);
 
-        return Ok(new { message = "Document successfully replaced.", docId });
+        return Ok(new { message, docId });
     }
 }

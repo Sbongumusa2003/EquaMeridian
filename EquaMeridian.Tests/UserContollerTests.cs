@@ -10,78 +10,142 @@ public class UsersControllerTests
     private readonly Mock<IEmailService> _mockEmail = new();
 
     private UsersController CreateController()
-        => new UsersController(_mockRepo.Object, _mockAudit.Object, _mockEmail.Object);
+        => new(_mockRepo.Object, _mockAudit.Object, _mockEmail.Object);
+
+    private void SetupAudit()
+        => _mockAudit
+            .Setup(a => a.LogAsync(
+                It.IsAny<int?>(), It.IsAny<string>(), It.IsAny<string?>(),
+                It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(),
+                It.IsAny<string?>(), It.IsAny<string?>()))
+            .Returns(Task.CompletedTask);
+
     [Fact]
     public async Task GetAll_ReturnsOk_WithUserList()
     {
+        SetupAudit();
         var users = new List<UserDto>
         {
-            new UserDto { UserID = 1, Email = "admin@test.com", Role = "admin" },
-            new UserDto { UserID = 2, Email = "sup@test.com",   Role = "Supplier" }
+            new() { UserID = 1, Email = "admin@test.com", Role = "admin" },
+            new() { UserID = 2, Email = "sup@test.com",   Role = "Supplier" }
         };
         _mockRepo.Setup(r => r.GetAllAsync(null, null, null, 1, 10))
                  .ReturnsAsync((users, 2));
-        _mockAudit.Setup(a => a.LogAsync(It.IsAny<int>(), It.IsAny<string>(),
-            It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<int?>(),
-            It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>()))
-            .Returns(Task.CompletedTask);
 
         var controller = CreateController();
-        controller.ControllerContext = FakeAdminContext(1);
+        controller.ControllerContext = TestHelpers.FakeAdminContext(1);
+
         var result = await controller.GetAll(null, null, null, 1, 10);
+
         result.Should().BeOfType<OkObjectResult>();
-        var ok = result as OkObjectResult;
-        ok!.Value.Should().NotBeNull();
+        (result as OkObjectResult)!.Value.Should().NotBeNull();
     }
 
     [Fact]
     public async Task GetAll_WithSearch_FiltersCorrectly()
     {
+        SetupAudit();
         var filtered = new List<UserDto>
-            { new UserDto { UserID = 2, Email = "john@test.com", FullName = "John" } };
+            { new() { UserID = 2, Email = "john@test.com", FullName = "John" } };
 
         _mockRepo.Setup(r => r.GetAllAsync("john", null, null, 1, 10))
                  .ReturnsAsync((filtered, 1));
-        _mockAudit.Setup(a => a.LogAsync(It.IsAny<int>(), It.IsAny<string>(),
-            It.IsAny<string?>(), It.IsAny<int?>(), It.IsAny<int?>(),
-            It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>()))
-            .Returns(Task.CompletedTask);
 
         var controller = CreateController();
-        controller.ControllerContext = FakeAdminContext(1);
+        controller.ControllerContext = TestHelpers.FakeAdminContext(1);
 
         var result = await controller.GetAll("john", null, null, 1, 10);
 
         result.Should().BeOfType<OkObjectResult>();
     }
+
+    [Fact]
+    public async Task GetAll_LogsAuditEvent()
+    {
+        SetupAudit();
+        _mockRepo.Setup(r => r.GetAllAsync(null, null, null, 1, 10))
+                 .ReturnsAsync((new List<UserDto>(), 0));
+
+        var controller = CreateController();
+        controller.ControllerContext = TestHelpers.FakeAdminContext(99);
+
+        await controller.GetAll(null, null, null, 1, 10);
+
+        _mockAudit.Verify(a => a.LogAsync(
+            99, "ADMIN_PANEL_ACCESS", It.IsAny<string?>(),
+            99, null, null, It.IsAny<string?>(), It.IsAny<string?>()), Times.Once);
+    }
+
     [Fact]
     public async Task UpdateStatus_UserNotFound_ReturnsNotFound()
     {
         _mockRepo.Setup(r => r.GetByIdAsync(99)).ReturnsAsync((User?)null);
         var controller = CreateController();
-        controller.ControllerContext = FakeAdminContext(1);
+        controller.ControllerContext = TestHelpers.FakeAdminContext(1);
 
         var result = await controller.UpdateStatus(99,
             new UpdateAccountStatusDto { NewStatus = "Active" });
 
         result.Should().BeOfType<NotFoundResult>();
     }
-    private static ControllerContext FakeAdminContext(int adminId)
+
+    [Fact]
+    public async Task UpdateStatus_ValidUser_ReturnsOk_AndNotifiesUser()
     {
-        var claims = new[]
+        SetupAudit();
+        _mockEmail
+            .Setup(e => e.SendAccountStatusChangedAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
+            .Returns(Task.CompletedTask);
+
+        var user = new User
         {
-            new System.Security.Claims.Claim(
-                System.Security.Claims.ClaimTypes.NameIdentifier,
-                adminId.ToString()),
-            new System.Security.Claims.Claim(
-                System.Security.Claims.ClaimTypes.Role, "admin")
+            UserID = 5,
+            Email = "supplier@test.com",
+            FullName = "Test Supplier",
+            AccountStatus = "Pending"
         };
-        var identity = new System.Security.Claims.ClaimsIdentity(claims, "Test");
-        var principal = new System.Security.Claims.ClaimsPrincipal(identity);
-        return new ControllerContext
+        _mockRepo.Setup(r => r.GetByIdAsync(5)).ReturnsAsync(user);
+        _mockRepo.Setup(r => r.UpdateStatusAsync(5, "Active")).Returns(Task.CompletedTask);
+
+        var controller = CreateController();
+        controller.ControllerContext = TestHelpers.FakeAdminContext(1);
+
+        var result = await controller.UpdateStatus(5,
+            new UpdateAccountStatusDto { NewStatus = "Active" });
+
+        result.Should().BeOfType<OkObjectResult>();
+        _mockRepo.Verify(r => r.UpdateStatusAsync(5, "Active"), Times.Once);
+        _mockEmail.Verify(e => e.SendAccountStatusChangedAsync(
+            "supplier@test.com", "Test Supplier", "Active"), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateStatus_LogsAuditWithPreviousAndNewStatus()
+    {
+        SetupAudit();
+        _mockEmail
+            .Setup(e => e.SendAccountStatusChangedAsync(
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
+            .Returns(Task.CompletedTask);
+
+        var user = new User
         {
-            HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext
-            { User = principal }
+            UserID = 7,
+            Email = "u@test.com",
+            FullName = "U",
+            AccountStatus = "Suspended"
         };
+        _mockRepo.Setup(r => r.GetByIdAsync(7)).ReturnsAsync(user);
+        _mockRepo.Setup(r => r.UpdateStatusAsync(7, "Active")).Returns(Task.CompletedTask);
+
+        var controller = CreateController();
+        controller.ControllerContext = TestHelpers.FakeAdminContext(2);
+
+        await controller.UpdateStatus(7, new UpdateAccountStatusDto { NewStatus = "Active" });
+
+        _mockAudit.Verify(a => a.LogAsync(
+            7, "ACCOUNT_STATUS_UPDATED", It.IsAny<string?>(),
+            2, null, "Suspended", It.IsAny<string?>(), "Active"), Times.Once);
     }
 }

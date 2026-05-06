@@ -10,7 +10,15 @@ public class AdminListingsControllerTests
     private readonly Mock<IEmailService> _mockEmail = new();
 
     private AdminListingsController CreateController()
-        => new AdminListingsController(_mockRepo.Object, _mockAudit.Object, _mockEmail.Object);
+        => new(_mockRepo.Object, _mockAudit.Object, _mockEmail.Object);
+    private void SetupAudit()
+        => _mockAudit
+            .Setup(a => a.LogAsync(
+                It.IsAny<int?>(), It.IsAny<string>(), It.IsAny<string?>(),
+                It.IsAny<int?>(), It.IsAny<int?>(), It.IsAny<string?>(),
+                It.IsAny<string?>(), It.IsAny<string?>()))
+            .Returns(Task.CompletedTask);
+
     [Fact]
     public async Task GetById_ExistingId_ReturnsOk()
     {
@@ -20,8 +28,7 @@ public class AdminListingsControllerTests
         var result = await CreateController().GetById(1);
 
         result.Should().BeOfType<OkObjectResult>();
-        var ok = result as OkObjectResult;
-        var dto = ok!.Value as ListingDto;
+        var dto = (result as OkObjectResult)!.Value as ListingDto;
         dto!.ListingID.Should().Be(1);
     }
 
@@ -34,11 +41,12 @@ public class AdminListingsControllerTests
 
         result.Should().BeOfType<NotFoundResult>();
     }
+
     [Fact]
     public async Task UpdateStatus_Suspended_WithoutReason_ReturnsBadRequest()
     {
         var controller = CreateController();
-        controller.ControllerContext = FakeAdminContext(1);
+        controller.ControllerContext = TestHelpers.FakeAdminContext(1);
 
         var result = await controller.UpdateStatus(1,
             new UpdateListingStatusDto { NewStatus = "Suspended" });
@@ -51,7 +59,7 @@ public class AdminListingsControllerTests
     {
         _mockRepo.Setup(r => r.GetByIdAsync(55)).ReturnsAsync((ListingDto?)null);
         var controller = CreateController();
-        controller.ControllerContext = FakeAdminContext(1);
+        controller.ControllerContext = TestHelpers.FakeAdminContext(1);
 
         var result = await controller.UpdateStatus(55,
             new UpdateListingStatusDto { NewStatus = "Active" });
@@ -59,22 +67,64 @@ public class AdminListingsControllerTests
         result.Should().BeOfType<NotFoundResult>();
     }
 
-    private static ControllerContext FakeAdminContext(int adminId)
+    [Fact]
+    public async Task UpdateStatus_Active_CallsRepoAndAuditAndEmail()
     {
-        var claims = new[]
+        SetupAudit();
+        _mockEmail
+            .Setup(e => e.SendListingStatusChangedAsync(
+                It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string?>()))
+            .Returns(Task.CompletedTask);
+
+        var existing = new ListingDto
         {
-            new System.Security.Claims.Claim(
-                System.Security.Claims.ClaimTypes.NameIdentifier,
-                adminId.ToString()),
-            new System.Security.Claims.Claim(
-                System.Security.Claims.ClaimTypes.Role, "admin")
+            ListingID = 10,
+            SupplierID = 2,
+            SupplierName = "ACME",
+            AvailabilityStatus = "Pending"
         };
-        var identity = new System.Security.Claims.ClaimsIdentity(claims, "Test");
-        var principal = new System.Security.Claims.ClaimsPrincipal(identity);
-        return new ControllerContext
+        _mockRepo.Setup(r => r.GetByIdAsync(10)).ReturnsAsync(existing);
+        _mockRepo.Setup(r => r.UpdateStatusAsync(10, "Active")).Returns(Task.CompletedTask);
+
+        var controller = CreateController();
+        controller.ControllerContext = TestHelpers.FakeAdminContext(1);
+
+        var result = await controller.UpdateStatus(10,
+            new UpdateListingStatusDto { NewStatus = "Active" });
+
+        result.Should().BeOfType<OkObjectResult>();
+        _mockRepo.Verify(r => r.UpdateStatusAsync(10, "Active"), Times.Once);
+        _mockAudit.Verify(a => a.LogAsync(
+            2, "LISTING_STATUS_UPDATED", It.IsAny<string?>(),
+            1, 10, "Pending", It.IsAny<string?>(), "Active"), Times.Once);
+    }
+
+    [Fact]
+    public async Task UpdateStatus_Suspended_WithReason_Succeeds()
+    {
+        SetupAudit();
+        _mockEmail
+            .Setup(e => e.SendListingStatusChangedAsync(
+                It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string?>()))
+            .Returns(Task.CompletedTask);
+
+        var existing = new ListingDto
         {
-            HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext
-            { User = principal }
+            ListingID = 5,
+            SupplierID = 3,
+            AvailabilityStatus = "Active"
         };
+        _mockRepo.Setup(r => r.GetByIdAsync(5)).ReturnsAsync(existing);
+        _mockRepo.Setup(r => r.UpdateStatusAsync(5, "Suspended")).Returns(Task.CompletedTask);
+
+        var controller = CreateController();
+        controller.ControllerContext = TestHelpers.FakeAdminContext(1);
+
+        var result = await controller.UpdateStatus(5,
+            new UpdateListingStatusDto { NewStatus = "Suspended", SuspensionReason = "Fraud detected" });
+
+        result.Should().BeOfType<OkObjectResult>();
     }
 }
