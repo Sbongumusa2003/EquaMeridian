@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace EquaMeridian.Infrastructure.Migrations
 {
     /// <inheritdoc />
+    [Migration("20260507000001_AddListingImages")]
     public partial class AddListingImages : Migration
     {
         /// <inheritdoc />
