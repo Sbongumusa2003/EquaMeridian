@@ -1,13 +1,20 @@
 ﻿using EquaMeridian.Infrastructure.Data;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 
 public class DocumentRepository : IDocumentRepository
 {
     private static readonly string[] AllowedExtensions = { ".pdf", ".jpg", ".jpeg", ".png" };
-    private readonly AppDbContext _db;
 
-    public DocumentRepository(AppDbContext db) => _db = db;
+    private readonly AppDbContext _db;
+    private readonly IWebHostEnvironment _env;
+
+    public DocumentRepository(AppDbContext db, IWebHostEnvironment env)
+    {
+        _db = db;
+        _env = env;
+    }
 
     public async Task<IEnumerable<Document>> GetByUserAsync(int userId)
         => await _db.Documents
@@ -18,9 +25,12 @@ public class DocumentRepository : IDocumentRepository
     {
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
         if (!AllowedExtensions.Contains(ext))
-            throw new ArgumentException("Unsupported file format. Please upload PDF, JPG, or PNG.");
+            throw new ArgumentException(
+                "Unsupported file format. Please upload PDF, JPG, or PNG.");
 
-        var uploadPath = Path.Combine("Uploads", "Documents", userId.ToString());
+        var uploadPath = Path.Combine(
+            _env.ContentRootPath, "uploads", "documents", userId.ToString());
+
         Directory.CreateDirectory(uploadPath);
 
         var fileName = $"{Guid.NewGuid()}{ext}";

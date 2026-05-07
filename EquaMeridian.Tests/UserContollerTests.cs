@@ -10,7 +10,8 @@ public class UsersControllerTests
     private readonly Mock<IEmailService> _mockEmail = new();
 
     private UsersController CreateController()
-        => new(_mockRepo.Object, _mockAudit.Object, _mockEmail.Object);
+        => new(_mockRepo.Object, _mockAudit.Object, _mockEmail.Object,
+               TestHelpers.CreateDbContext());
 
     private void SetupAudit()
         => _mockAudit
@@ -76,10 +77,12 @@ public class UsersControllerTests
             99, null, null, It.IsAny<string?>(), It.IsAny<string?>()), Times.Once);
     }
 
+
     [Fact]
     public async Task UpdateStatus_UserNotFound_ReturnsNotFound()
     {
         _mockRepo.Setup(r => r.GetByIdAsync(99)).ReturnsAsync((User?)null);
+
         var controller = CreateController();
         controller.ControllerContext = TestHelpers.FakeAdminContext(1);
 

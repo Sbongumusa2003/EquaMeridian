@@ -17,6 +17,7 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IListingRepository, ListingRepository>();
 builder.Services.AddScoped<IDocumentRepository, DocumentRepository>();
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAngular", policy =>
@@ -39,6 +40,7 @@ builder.Services.AddCors(options =>
         }
     });
 });
+
 var jwtKey = builder.Configuration["Jwt:Key"]
     ?? throw new InvalidOperationException(
         "Jwt:Key is not configured. Set it via user-secrets or an environment variable.");
@@ -54,14 +56,17 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateIssuerSigningKey = true,
             ValidIssuer = builder.Configuration["Jwt:Issuer"],
             ValidAudience = builder.Configuration["Jwt:Audience"],
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
+            IssuerSigningKey = new SymmetricSecurityKey(
+                                           Encoding.UTF8.GetBytes(jwtKey))
         };
     });
+
 builder.Services.AddAuthorization(opt =>
 {
     opt.AddPolicy("AdminOnly", p => p.RequireRole("admin"));
     opt.AddPolicy("SupplierOnly", p => p.RequireRole("Supplier"));
 });
+
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
@@ -89,12 +94,14 @@ builder.Services.AddSwaggerGen(c =>
         Array.Empty<string>()
     }});
 });
+
 var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     await DataSeeder.SeedAsync(db);
 }
+
 app.Use(async (context, next) =>
 {
     try { await next(); }
@@ -108,6 +115,7 @@ app.Use(async (context, next) =>
         await context.Response.WriteAsJsonAsync(new { message });
     }
 });
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -115,14 +123,18 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseStaticFiles();
-var uploadsPath = Path.Combine(builder.Environment.ContentRootPath, "Uploads");
-Directory.CreateDirectory(uploadsPath);
+var uploadsPhysicalPath = Path.Combine(
+    builder.Environment.ContentRootPath, "uploads");
+
+Directory.CreateDirectory(uploadsPhysicalPath);
 
 app.UseStaticFiles(new StaticFileOptions
 {
-    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(uploadsPath),
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
+        uploadsPhysicalPath),
     RequestPath = "/uploads"
 });
+
 app.UseRouting();
 app.UseCors("AllowAngular");
 app.UseAuthentication();

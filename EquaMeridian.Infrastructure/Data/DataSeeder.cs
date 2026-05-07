@@ -10,7 +10,6 @@ public static class DataSeeder
     {
         await db.Database.MigrateAsync();
 
-        // Seed admin users
         var admins = new[]
         {
             new

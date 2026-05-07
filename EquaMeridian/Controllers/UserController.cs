@@ -15,11 +15,17 @@ public class UsersController : ControllerBase
     private readonly IEmailService _email;
     private readonly AppDbContext _db;
 
-    public UsersController(IUserRepository repo,
-                           IAuditService audit,
-                           IEmailService email,
-                           AppDbContext db)
-    { _repo = repo; _audit = audit; _email = email; _db = db; }
+    public UsersController(
+        IUserRepository repo,
+        IAuditService audit,
+        IEmailService email,
+        AppDbContext db)
+    {
+        _repo = repo;
+        _audit = audit;
+        _email = email;
+        _db = db;
+    }
 
     [HttpGet]
     public async Task<IActionResult> GetAll(
@@ -63,6 +69,7 @@ public class UsersController : ControllerBase
 
         return Ok(new { userId, newStatus = dto.NewStatus });
     }
+
     [HttpGet("{userId}/audit-log")]
     public async Task<IActionResult> GetAuditLog(int userId)
     {

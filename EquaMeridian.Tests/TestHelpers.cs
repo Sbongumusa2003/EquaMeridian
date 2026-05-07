@@ -1,9 +1,13 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using EquaMeridian.Infrastructure.Data;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 
 public static class TestHelpers
 {
+    // ─── Fake HTTP contexts ───────────────────────────────────────────────────
+
     public static ControllerContext FakeAdminContext(int adminId)
     {
         var claims = new[]
@@ -32,5 +36,18 @@ public static class TestHelpers
         {
             HttpContext = new DefaultHttpContext { User = principal }
         };
+    }
+
+    // ─── In-memory DbContext ──────────────────────────────────────────────────
+    // Used by tests that need to construct controllers which require AppDbContext.
+    // Each call returns a fresh, isolated database so tests do not share state.
+
+    public static AppDbContext CreateDbContext()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+            .Options;
+
+        return new AppDbContext(options);
     }
 }

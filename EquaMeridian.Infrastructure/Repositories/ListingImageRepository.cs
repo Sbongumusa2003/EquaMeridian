@@ -1,4 +1,5 @@
 ﻿using EquaMeridian.Infrastructure.Data;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 
@@ -8,8 +9,13 @@ public class ListingImageRepository : IListingImageRepository
     private const int MaxImagesPerListing = 5;
 
     private readonly AppDbContext _db;
+    private readonly IWebHostEnvironment _env;
 
-    public ListingImageRepository(AppDbContext db) => _db = db;
+    public ListingImageRepository(AppDbContext db, IWebHostEnvironment env)
+    {
+        _db = db;
+        _env = env;
+    }
 
     public async Task<IEnumerable<string>> GetUrlsByListingAsync(int listingId)
         => await _db.ListingImages
@@ -18,13 +24,18 @@ public class ListingImageRepository : IListingImageRepository
             .Select(i => i.FilePath)
             .ToListAsync();
 
-    public async Task<IEnumerable<string>> AddImagesAsync(int listingId, IEnumerable<IFormFile> files)
+    public async Task<IEnumerable<string>> AddImagesAsync(
+        int listingId, IEnumerable<IFormFile> files)
     {
-        var existingCount = await _db.ListingImages.CountAsync(i => i.ListingID == listingId);
+        var existingCount = await _db.ListingImages
+            .CountAsync(i => i.ListingID == listingId);
+
         var saved = new List<string>();
         var order = existingCount;
 
-        var uploadPath = Path.Combine("Uploads", "Listings", listingId.ToString());
+        var uploadPath = Path.Combine(
+            _env.ContentRootPath, "uploads", "listings", listingId.ToString());
+
         Directory.CreateDirectory(uploadPath);
 
         foreach (var file in files)
@@ -36,8 +47,12 @@ public class ListingImageRepository : IListingImageRepository
             if (!AllowedExtensions.Contains(ext))
                 continue;
 
+            if (file.Length > 10 * 1024 * 1024) // 10 MB guard
+                continue;
+
             var fileName = $"{Guid.NewGuid()}{ext}";
             var fullPath = Path.Combine(uploadPath, fileName);
+            // Relative URL stored in DB — matches the StaticFiles RequestPath /uploads
             var relativeUrl = $"/uploads/listings/{listingId}/{fileName}";
 
             using (var stream = File.Create(fullPath))
@@ -66,10 +81,14 @@ public class ListingImageRepository : IListingImageRepository
             .FirstOrDefaultAsync(i => i.ImageID == imageId && i.ListingID == listingId);
 
         if (image == null) return false;
-        var wwwRoot = Directory.GetCurrentDirectory();
-        var filePath = Path.Combine(wwwRoot, image.FilePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
-        if (File.Exists(filePath))
-            File.Delete(filePath);
+
+        // Resolve the physical path from ContentRoot + the stored relative URL
+        // image.FilePath is e.g.  /uploads/listings/3/abc.jpg
+        var relativePath = image.FilePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
+        var fullPath = Path.Combine(_env.ContentRootPath, relativePath);
+
+        if (File.Exists(fullPath))
+            File.Delete(fullPath);
 
         _db.ListingImages.Remove(image);
         await _db.SaveChangesAsync();
