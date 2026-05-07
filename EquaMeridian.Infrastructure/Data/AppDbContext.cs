@@ -13,6 +13,7 @@ public class AppDbContext : DbContext
     public DbSet<Document> Documents => Set<Document>();
     public DbSet<DocumentType> DocumentTypes => Set<DocumentType>();
     public DbSet<Category> Categories => Set<Category>();
+    public DbSet<ListingImage> ListingImages => Set<ListingImage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -55,5 +56,12 @@ public class AppDbContext : DbContext
             .HasKey(dt => dt.DocTypeID);
         modelBuilder.Entity<Category>()
             .HasKey(c => c.CategoryID);
+        modelBuilder.Entity<ListingImage>()
+            .HasKey(i => i.ImageID);
+        modelBuilder.Entity<ListingImage>()
+            .HasOne(i => i.Listing)
+            .WithMany()
+            .HasForeignKey(i => i.ListingID)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }

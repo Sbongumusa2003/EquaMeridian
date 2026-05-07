@@ -10,7 +10,9 @@ public class ListingRepository : IListingRepository
     public async Task<(IEnumerable<ListingDto>, int)> GetAllAsync(
         string? search, int? category, string? status, int page, int pageSize)
     {
-        var q = _db.Listings.Include(l => l.Supplier).AsQueryable();
+        var q = _db.Listings
+            .Include(l => l.Supplier)
+            .AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(search))
             q = q.Where(l => l.ListingTitle.Contains(search) ||
@@ -20,27 +22,39 @@ public class ListingRepository : IListingRepository
         if (!string.IsNullOrWhiteSpace(status)) q = q.Where(l => l.AvailabilityStatus == status);
 
         var total = await q.CountAsync();
-        var items = await q
+        var listings = await q
             .OrderByDescending(l => l.CreatedDate)
             .Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(l => MapToDto(l))
             .ToListAsync();
 
-        return (items, total);
+        var ids = listings.Select(l => l.ListingID).ToList();
+        var imageMap = await BuildImageMapAsync(ids);
+
+        return (listings.Select(l => MapToDto(l, imageMap)), total);
     }
 
-    public Task<ListingDto?> GetByIdAsync(int id)
-        => _db.Listings.Include(l => l.Supplier)
-               .Where(l => l.ListingID == id)
-               .Select(l => (ListingDto?)MapToDto(l))
-               .FirstOrDefaultAsync();
+    public async Task<ListingDto?> GetByIdAsync(int id)
+    {
+        var listing = await _db.Listings
+            .Include(l => l.Supplier)
+            .FirstOrDefaultAsync(l => l.ListingID == id);
+
+        if (listing == null) return null;
+
+        var imageMap = await BuildImageMapAsync(new[] { id });
+        return MapToDto(listing, imageMap);
+    }
+
     public async Task<IEnumerable<ListingDto>> GetByIdsAsync(IEnumerable<int> ids)
     {
-        return await _db.Listings
+        var idList = ids.ToList();
+        var listings = await _db.Listings
             .Include(l => l.Supplier)
-            .Where(l => ids.Contains(l.ListingID))
-            .Select(l => MapToDto(l))
+            .Where(l => idList.Contains(l.ListingID))
             .ToListAsync();
+
+        var imageMap = await BuildImageMapAsync(idList);
+        return listings.Select(l => MapToDto(l, imageMap));
     }
 
     public async Task UpdateStatusAsync(int id, string status)
@@ -53,19 +67,23 @@ public class ListingRepository : IListingRepository
     public async Task<(IEnumerable<ListingDto>, int)> GetBySupplierAsync(
         int supplierId, string? status, int page, int pageSize)
     {
-        var q = _db.Listings.Include(l => l.Supplier)
-                   .Where(l => l.SupplierID == supplierId).AsQueryable();
+        var q = _db.Listings
+            .Include(l => l.Supplier)
+            .Where(l => l.SupplierID == supplierId)
+            .AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(status)) q = q.Where(l => l.AvailabilityStatus == status);
 
         var total = await q.CountAsync();
-        var items = await q
+        var listings = await q
             .OrderByDescending(l => l.CreatedDate)
             .Skip((page - 1) * pageSize).Take(pageSize)
-            .Select(l => MapToDto(l))
             .ToListAsync();
 
-        return (items, total);
+        var ids = listings.Select(l => l.ListingID).ToList();
+        var imageMap = await BuildImageMapAsync(ids);
+
+        return (listings.Select(l => MapToDto(l, imageMap)), total);
     }
 
     public async Task<int> CreateAsync(CreateListingDto dto, int supplierId)
@@ -128,8 +146,23 @@ public class ListingRepository : IListingRepository
         l.DeactivatedDate = DateTime.UtcNow;
         await _db.SaveChangesAsync();
     }
+    private async Task<Dictionary<int, List<string>>> BuildImageMapAsync(IEnumerable<int> listingIds)
+    {
+        var ids = listingIds.ToList();
 
-    private static ListingDto MapToDto(Listing l) => new()
+        var rows = await _db.ListingImages
+            .Where(i => ids.Contains(i.ListingID))
+            .OrderBy(i => i.ListingID)
+            .ThenBy(i => i.DisplayOrder)
+            .Select(i => new { i.ListingID, i.FilePath })
+            .ToListAsync();
+
+        return rows
+            .GroupBy(r => r.ListingID)
+            .ToDictionary(g => g.Key, g => g.Select(r => r.FilePath).ToList());
+    }
+
+    private static ListingDto MapToDto(Listing l, Dictionary<int, List<string>> imageMap) => new()
     {
         ListingID = l.ListingID,
         ListingTitle = l.ListingTitle,
@@ -147,6 +180,7 @@ public class ListingRepository : IListingRepository
         CreatedDate = l.CreatedDate,
         DuplicateFlag = l.DuplicateFlag,
         SupplierID = l.SupplierID,
-        SupplierName = l.Supplier?.FullName ?? string.Empty
+        SupplierName = l.Supplier?.FullName ?? string.Empty,
+        ImageUrls = imageMap.TryGetValue(l.ListingID, out var urls) ? urls : new List<string>()
     };
 }
