@@ -6,7 +6,6 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace EquaMeridian.Infrastructure.Migrations
 {
     /// <inheritdoc />
-    [Migration("20260507000001_AddListingImages")]
     public partial class AddListingImages : Migration
     {
         /// <inheritdoc />
@@ -20,7 +19,7 @@ namespace EquaMeridian.Infrastructure.Migrations
                         .Annotation("SqlServer:Identity", "1, 1"),
                     ListingID = table.Column<int>(type: "int", nullable: false),
                     FilePath = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    DisplayOrder = table.Column<int>(type: "int", nullable: false, defaultValue: 0),
+                    DisplayOrder = table.Column<int>(type: "int", nullable: false),
                     UploadedDate = table.Column<DateTime>(type: "datetime2", nullable: false)
                 },
                 constraints: table =>
@@ -43,7 +42,8 @@ namespace EquaMeridian.Infrastructure.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropTable(name: "ListingImages");
+            migrationBuilder.DropTable(
+                name: "ListingImages");
         }
     }
 }
